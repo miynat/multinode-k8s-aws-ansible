@@ -1,0 +1,127 @@
+---
+# tasks file for aws-ec2
+- name: Installing boto & boto3 on local system
+  pip:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ python_pkgs }}"
+
+- name: Create a new EC2 key pair
+  ec2_key:
+    name: "{{ keypair_name }}"
+    region: "{{ region_name }}"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+  register: keypair
+
+- name: Save EC2 Private Key locally so it can be used for SSH later on
+  copy:
+    content: "{{ keypair.key.private_key }}"
+    dest: "{{ keypair_directory }}{{ keypair_name }}"
+    mode: "400"
+    owner: selcuk
+    group: selcuk
+    force: true
+
+- name: Creating VPC for the K8S Cluster
+  ec2_vpc_net:
+    name: "{{ vpc_name }}"
+    cidr_block: "{{ vpc_cidr }}"
+    region: "{{ region_name }}"
+    state: present
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+  register: k8s_vpc
+
+- name: Create IGW
+  ec2_vpc_igw:
+    region: "{{ region_name }}"
+    vpc_id: "{{ k8s_vpc.vpc.id }}"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    state: present
+    tags:
+      Name: "{{ igw_name }}"
+  register: igw
+
+- name: Create Subnet for K8S Cluster
+  ec2_vpc_subnet:
+    region: "{{ region_name }}"
+    vpc_id: "{{ k8s_vpc.vpc.id }}"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    state: present
+    cidr: "{{ subnet_cidr }}"
+    map_public: yes
+    tags:
+      Name: "{{ subnet_name }}"
+  register: subnet
+
+- name: Route traffic to IGW
+  ec2_vpc_route_table:
+    region: "{{ region_name }}"
+    vpc_id: "{{ k8s_vpc.vpc.id }}"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    subnets:
+      - "{{ subnet.subnet.id }}"
+    routes:
+      - dest: 0.0.0.0/0
+        gateway_id: "{{ igw.gateway_id }}"
+    tags:
+      Name: "{{ route_name }}"
+
+- name: Creating Security Group for K8S Cluster
+  ec2_group:
+    name: "{{ sg_name }}"
+    description: Security Group for allowing all port
+    region: "{{ region_name }}"
+    vpc_id: "{{ k8s_vpc.vpc.id }}"
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    rules:
+    - proto: all
+      cidr_ip: 0.0.0.0/0
+    rules_egress:
+    - proto: all
+      cidr_ip: 0.0.0.0/0
+
+- name: Launching three EC2 instances on AWS
+  ec2:
+    key_name: "{{ keypair_name }}"
+    instance_type: "{{ instance_flavour }}"
+    image: "{{ ami_id }}"
+    wait: true
+    group: "{{ sg_name }}"
+    count: 1
+    vpc_subnet_id: "{{ subnet.subnet.id }}"
+    assign_public_ip: yes
+    region: "{{ region_name }}"
+    state: present
+    aws_access_key: "{{ access_key }}"
+    aws_secret_key: "{{ secret_key }}"
+    instance_tags:
+      Name: "{{ item }}"
+  register: ec2
+  loop: "{{ instance_tag }}"
+
+- name: Add 1st instance to host group ec2_master
+  add_host:
+    hostname: "{{ ec2.results[0].instances[0].public_ip }}"
+    groupname: ec2_master
+
+- name: Add 2nd instance to host group ec2_slave
+  add_host:
+    hostname: "{{ ec2.results[1].instances[0].public_ip }}"
+    groupname: ec2_slave
+
+- name: Add 3rd instance to host group ec2_slave
+  add_host:
+    hostname: "{{ ec2.results[2].instances[0].public_ip }}"
+    groupname: ec2_slave
+
+- name: Wait for SSH to come up
+  wait_for:
+    host: "{{ ec2.results[2].instances[0].public_dns_name }}"
+    port: 22
+    state: started

@@ -1,0 +1,5 @@
+---
+# vars file for kube-slave
+service_names:
+  - docker
+  - kubelet

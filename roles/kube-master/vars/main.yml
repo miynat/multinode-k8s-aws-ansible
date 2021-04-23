@@ -1,0 +1,5 @@
+---
+# vars file for kube-master
+service_names:
+  - "docker"
+  - "kubelet"

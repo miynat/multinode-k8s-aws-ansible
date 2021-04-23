@@ -1,0 +1,30 @@
+---
+# vars file for aws-ec2
+instance_tag:
+  - master
+  - slave1
+  - slave2
+
+python_pkgs:
+  - boto
+  - boto3
+
+region_name: us-east-1
+
+# VPC
+vpc_cidr: 10.10.0.0/24
+vpc_name: my-k8s-vpc
+
+# Subnet
+subnet_name: my-k8s-subnet
+subnet_cidr: 10.10.0.0/26
+
+igw_name: k8s-igw
+route_name: k8s-route
+sg_name: Allow_All_SG
+
+instance_flavour: t2.micro
+ami_id: ami-0742b4e673072066f
+
+keypair_directory: /home/selcuk/tutorials/kube_ansible/
+keypair_name: k8s-keypair
